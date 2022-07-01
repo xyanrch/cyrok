@@ -1,0 +1,30 @@
+{
+    "server_addr": "1.1.1.1",
+    "log": {
+        "loglevel": "info",
+        "to_file": true,
+        "base_name":"xxlog",
+        "dir":"./log"
+       
+
+    },
+    "tunnels":[
+        {
+            "sub_domain":"/test11",
+            "host_name":"host1",
+            "protocal":"tcp",
+            "httpauth":"auth1",
+            "remote_port":22
+        },
+        {
+            "sub_domain":"/test12",
+            "host_name":"host2",
+            "protocal":"http",
+            "httpauth":"auth2",
+            "remote_port":80
+
+        }
+
+    ]
+
+}
