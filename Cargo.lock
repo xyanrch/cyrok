@@ -163,6 +163,7 @@ dependencies = [
  "clap",
  "flexi_logger",
  "futures 0.3.21",
+ "lazy_static",
  "log",
  "rustls-pemfile",
  "serde",
