@@ -2,15 +2,16 @@
 // to request a new tunnel be opened on the client's behalf.
 // ReqId is a random number set by the client that it can pull
 // from future NewTunnel's to correlate then to the requesting ReqTunnel.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct ReqTunnel {
-	reqid :   String,
-	protocol: String,
+	ReqId :   String,
+	Protocol: String,
 
 	// http only
-	hostname:  String,
-	subdomain: String,
-	httpauth:  String,
+	Hostname:  String,
+	Subdomain: String,
+	HttpAuth:  String,
 
 	// tcp only
-	remoteport: u16
+	RemotePort: u16
 }

@@ -1,12 +1,12 @@
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct AuthReq {
-    Version: String,   // protocol version
-    MmVersion: String, // major/minor software version (informational only)
-    User: String,
-    Password: String,
-    OS: String,
-    Arch: String,
-    ClientId: String, // empty for new sessions
+    pub Version: String,   // protocol version
+    pub MmVersion: String, // major/minor software version (informational only)
+    pub User: String,
+    pub Password: String,
+    pub OS: String,
+    pub Arch: String,
+    pub ClientId: String, // empty for new sessions
 }
 
 // A server responds to an Auth message with an
@@ -21,8 +21,8 @@ pub struct AuthReq {
 // proxy connections via the same field in RegProxy messages.
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct AuthResp {
-    version: String,
-    mmversion: String,
-    clien_id: String,
-    error: String,
+    pub Version: String,
+    pub MmVersion: String,
+    pub ClientId: String,
+    pub Error: String,
 }

@@ -1,4 +1,4 @@
-#![warn(rust_2018_idioms)]
+extern crate lazy_static;
 mod cli;
 mod service;
 use rustls_pemfile::{certs, rsa_private_keys};
@@ -8,11 +8,13 @@ use std::io::{self, BufReader};
 use std::path::{Path, PathBuf};
 use tokio::io::{copy, sink, split, AsyncWriteExt};
 //use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::rustls::{self, Certificate, PrivateKey};
 use tokio_rustls::TlsAcceptor;
-use std::sync::Arc;
 mod connection;
+mod control;
+mod registery;
 fn load_certs(path: &Path) -> io::Result<Vec<Certificate>> {
     certs(&mut BufReader::new(File::open(path)?))
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid cert"))
@@ -24,6 +26,7 @@ fn load_keys(path: &Path) -> io::Result<Vec<PrivateKey>> {
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid key"))
         .map(|mut keys| keys.drain(..).map(PrivateKey).collect())
 }
+
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let opts = cli::Options::parse();
@@ -44,11 +47,16 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //
     let tls_acceptor = TlsAcceptor::from(Arc::new(tlsconfig));
 
-
     let data_listener = TcpListener::bind(opts.http_addr).await?;
     let ctrl_listener = TcpListener::bind("0.0.0.0:4443").await?;
-    service::run(tls_acceptor,ctrl_listener, data_listener, tokio::signal::ctrl_c()).await;
-
+    service::run(
+        tls_acceptor,
+        ctrl_listener,
+        data_listener,
+        tokio::signal::ctrl_c(),
+    )
+    .await;
+    registery::dump_control_registery();
     log::info!("server shutdown");
 
     Ok(())

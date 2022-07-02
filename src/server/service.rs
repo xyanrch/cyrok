@@ -11,9 +11,11 @@ use tokio::sync::{broadcast, mpsc, Semaphore};
 use tokio_stream::StreamExt;
 use tokio_util::codec::{BytesCodec, Decoder, Encoder, Framed, LinesCodec};
 
-use cyrok::message;
+use cyrok::message::{self, Message};
 use tokio_rustls::rustls::{self, Certificate, PrivateKey};
 use tokio_rustls::TlsAcceptor;
+use crate::connection;
+use crate::control;
 //pub mod cmd;
 #[derive(Debug, Clone)]
 enum Type {
@@ -45,7 +47,6 @@ impl ListenerWrapper {
     }
 }
 
-
 async fn handle_tunnel_conn(
     mut socket: TcpStream,
     tlsacceptor: TlsAcceptor,
@@ -55,15 +56,17 @@ async fn handle_tunnel_conn(
     let mut tls_socket = tlsacceptor.accept(socket).await?;
     //let con = connection::Conn::new(tlsacceptor.accept(socket).await.unwrap());
 
-    let len = tls_socket.read_u64_le().await?;
-    log::info!("receive message len:{:?}", len);
-    let mut buf = BytesMut::with_capacity(len.try_into().unwrap());
-    tls_socket.read_buf(&mut buf).await?;
-    log::info!("receive message {:?}", buf);
-    let raw: message::Envelope = serde_json::from_slice(&mut buf)?;
-    log::info!("receive parsed message {:?}", raw);
-    let auth = message::Message::frome_envelop(raw)?;
-    log::info!("receive auth message {:?}", auth);
+
+    let mut conn = connection::Conn::new(tls_socket,None);
+    match message::Message::from_conn( &mut conn.tls_socket).await? {
+        Message::AuthReq(authreq) => {
+
+            control::handle_ctrl_conn(conn,authreq).await?;
+
+        }
+        Message::Unknown(_) => {}
+        _ => {}
+    }
 
     Ok(())
 }
