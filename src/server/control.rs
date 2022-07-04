@@ -1,5 +1,6 @@
 use crate::connection::Conn;
 use crate::registery;
+use crate::tunnel::Tunnel;
 use bytes::BytesMut;
 use cyrok::{
     message::{
@@ -8,6 +9,7 @@ use cyrok::{
         heatbeat::{Ping, Pong},
         proxy::{RegProxy, ReqProxy},
         tunnel::ReqTunnel,
+        tunnel::NewTunnel,
         Message,
     },
     VERSON_MARJOR, VERSON_MINI,
@@ -27,54 +29,77 @@ use tokio::{
 use tokio::{sync::Mutex, time::sleep};
 #[derive(Debug)]
 pub struct Control {
-    pub conn: Conn,
+    pub conn: Arc<Mutex<Conn>>,
     pub id: String, //tunnels:Vec<Tunnel>,
     pub proxys: Vec<(AtomicBool, Conn)>,
 }
+pub async fn register_tunnel(c: &Arc<Mutex<Control>>,req_tunnel:ReqTunnel) 
+{
+  let t = Tunnel::new(&c, &req_tunnel);
+  {
+    let conn = Control::get_conn(c).await;
+    conn.lock().await.send_message(Message::NewTunnel(NewTunnel{
+        Url:      t.url.clone(),
+        Protocol: req_tunnel.Protocol.clone(),
+        ReqId:   req_tunnel.ReqId.clone(),
+        Error:String::new()
+
+    })).await.unwrap();
+  }
+}
 impl Control {
+    pub async fn get_conn(c: &Arc<Mutex<Control>>)->Arc<Mutex<Conn>>
+    {
+        let  lock = c.lock().await;
+        let  conn = lock.conn.clone();
+        conn
+    }
     pub async fn wait_message(c: Arc<Mutex<Control>>) -> Result<(), Box<dyn Error>> {
+        let conn = Control::get_conn(&c).await;
+       // let mut lock = conn.lock().await;
+       let socket = Conn::get_socket(&conn).await;
         loop {
-            let mut lock = c.lock().await;
-            match message::Message::from_conn(&mut lock.conn.tls_socket).await? {
+         
+            match message::Message::from_conn(&socket).await? {
                 Message::ReqTunnel(req_tunnel) => {
                     log::info!("MESSAG:{:?}", req_tunnel);
-                    lock.register_tunnel(req_tunnel);
+                    register_tunnel(&c,req_tunnel).await;
+                   // lock.register_tunnel(req_tunnel);
                 }
                 Message::RegProxy(reg_proxy) => {
                     log::info!("Regproxy:{:?}", reg_proxy);
                 }
                 Message::Ping(_) => {
-                    lock.send_message(Message::Pong(Pong {})).await?;
+                    conn.lock().await.send_message(Message::Pong(Pong {})).await?;
+                    log::info!("send pong");
                 }
                 Message::Unknown(_) => {}
                 _ => {
                     //  break;
                 }
             }
-            drop(lock);
-            sleep(Duration::from_millis(100)).await;
+            //drop(lock);
+            //sleep(Duration::from_millis(100)).await;
         }
 
         // Ok(())
     }
-    pub async fn send_message(&mut self, message: Message) -> Result<(), Box<dyn Error>> {
-        let raw = serde_json::to_string(&message.to_envelop())?;
-        self.conn
-            .tls_socket
-            .write_i64_le(raw.len().try_into().unwrap())
-            .await?;
-        self.conn.tls_socket.write_all(raw.as_bytes()).await?;
 
-        Ok(())
+
+
+
+    pub async fn send_message(&mut self, message: Message) -> Result<(), Box<dyn Error>> {
+        let mut lock = self.conn.lock().await;
+        lock.send_message(message).await
+
     }
-    pub fn register_tunnel(&mut self, req_tunnel: ReqTunnel) {}
 }
 pub async fn handle_ctrl_conn(
     connection: Conn,
     msg: message::auth::AuthReq,
 ) -> Result<(), Box<dyn Error>> {
     let control = Arc::new(Mutex::new(Control {
-        conn: connection,
+        conn: Arc::new(Mutex::new(connection)),
         id: match &msg.ClientId[..] {
             // it's a new session, assign an ID
             "" => "1234567890".to_owned(),
@@ -98,9 +123,8 @@ pub async fn handle_ctrl_conn(
         .await?;
     let ctrol_clone = control.clone();
     tokio::spawn(async move {
-  
-        Control::wait_message(ctrol_clone).await.unwrap();
-     });
+        Control::wait_message(ctrol_clone).await.expect("connection closed");
+    });
 
     // curr.send_message(Message::ReqProxy(ReqProxy {})).await?;
 

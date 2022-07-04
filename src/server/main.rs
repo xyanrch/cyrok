@@ -12,9 +12,12 @@ use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::rustls::{self, Certificate, PrivateKey};
 use tokio_rustls::TlsAcceptor;
+
+use crate::cli::Options;
 mod connection;
 mod control;
 mod registery;
+mod tunnel;
 fn load_certs(path: &Path) -> io::Result<Vec<Certificate>> {
     certs(&mut BufReader::new(File::open(path)?))
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid cert"))
@@ -26,7 +29,9 @@ fn load_keys(path: &Path) -> io::Result<Vec<PrivateKey>> {
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid key"))
         .map(|mut keys| keys.drain(..).map(PrivateKey).collect())
 }
-
+lazy_static::lazy_static! {
+    static  ref  OPTS :Option<Options> = None;
+}
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let opts = cli::Options::parse();

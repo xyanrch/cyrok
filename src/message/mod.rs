@@ -8,12 +8,15 @@ use heatbeat::Ping;
 use heatbeat::Pong;
 use proxy::RegProxy;
 use proxy::ReqProxy;
+use tunnel::NewTunnel;
 use tunnel::ReqTunnel;
 
 use bytes::BytesMut;
 use std::io::Error;
+use std::{sync::Arc, sync::Weak};
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
+use tokio::sync::Mutex;
 use tokio_rustls::server::TlsStream;
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct Envelope {
@@ -29,7 +32,7 @@ pub enum Message {
     AuthReq(AuthReq),
     AuthResp(AuthResp),
     ReqTunnel(ReqTunnel),
-    // NewTunnel(NewTunnel),
+    NewTunnel(NewTunnel),
     RegProxy(RegProxy),
     ReqProxy(ReqProxy),
     Ping(Ping),
@@ -39,8 +42,9 @@ pub enum Message {
 }
 impl Message {
     pub async fn from_conn(
-        tls_socket: &mut TlsStream<TcpStream>,
+        tls_socket_arc: &Arc<Mutex<TlsStream<TcpStream>>>,
     ) -> std::result::Result<Message, Error> {
+        let mut tls_socket = tls_socket_arc.lock().await;
         let len = tls_socket.read_u64_le().await?;
         log::info!("receive message len:{:?}", len);
         let mut buf = BytesMut::with_capacity(len.try_into().unwrap());
@@ -58,6 +62,7 @@ impl Message {
             "RegProxy" => Message::RegProxy(serde_json::from_value(val.Payload).unwrap()),
             "Ping" => Message::Ping(serde_json::from_value(val.Payload).unwrap()),
             "Pong" => Message::Pong(serde_json::from_value(val.Payload).unwrap()),
+            "NewTunnel" => Message::NewTunnel(serde_json::from_value(val.Payload).unwrap()),
             _ => Message::Unknown(Unknown {
                 err: String::from("unkown"),
             }),
@@ -72,8 +77,9 @@ impl Message {
                 Message::ReqTunnel(_) => "ReqTunnel".to_owned(),
                 Message::RegProxy(_) => "RegProxy".to_owned(),
                 Message::ReqProxy(_) => "ReqProxy".to_owned(),
-                Message::Ping(_) =>"Ping".to_owned(),
-                Message::Pong(_) =>"Pong".to_owned(),
+                Message::Ping(_) => "Ping".to_owned(),
+                Message::Pong(_) => "Pong".to_owned(),
+                Message::NewTunnel(_) => "NewTunnel".to_owned(),
 
                 Message::Unknown(_) => "unkown".to_owned(),
             },
@@ -84,9 +90,9 @@ impl Message {
                 Message::ReqTunnel(req_tunnel) => serde_json::to_value(req_tunnel).unwrap(),
                 Message::RegProxy(reg_proxy) => serde_json::to_value(reg_proxy).unwrap(),
                 Message::ReqProxy(req_proxy) => serde_json::to_value(req_proxy).unwrap(),
-                Message::Ping(ping) =>serde_json::to_value(ping).unwrap(),
-                Message::Pong(pong) =>serde_json::to_value(pong).unwrap(),
-
+                Message::Ping(ping) => serde_json::to_value(ping).unwrap(),
+                Message::Pong(pong) => serde_json::to_value(pong).unwrap(),
+                Message::NewTunnel(new_tunnel) => serde_json::to_value(new_tunnel).unwrap(),
                 Message::Unknown(unknown) => serde_json::to_value(unknown).unwrap(),
             },
         }
