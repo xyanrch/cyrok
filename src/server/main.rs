@@ -56,7 +56,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::signal::ctrl_c(),
     )
     .await;
-    registery::dump_control_registery();
+    registery::dump_control_registery().await;
     log::info!("server shutdown");
 
     Ok(())
@@ -66,4 +66,4 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (mut ri, mut wi) = inbound.split();
 
     Ok(())
-}*/
+//}*/

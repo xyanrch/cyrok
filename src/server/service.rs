@@ -11,11 +11,11 @@ use tokio::sync::{broadcast, mpsc, Semaphore};
 use tokio_stream::StreamExt;
 use tokio_util::codec::{BytesCodec, Decoder, Encoder, Framed, LinesCodec};
 
+use crate::connection;
+use crate::control;
 use cyrok::message::{self, Message};
 use tokio_rustls::rustls::{self, Certificate, PrivateKey};
 use tokio_rustls::TlsAcceptor;
-use crate::connection;
-use crate::control;
 //pub mod cmd;
 #[derive(Debug, Clone)]
 enum Type {
@@ -48,20 +48,22 @@ impl ListenerWrapper {
 }
 
 async fn handle_tunnel_conn(
-    mut socket: TcpStream,
+    socket: TcpStream,
     tlsacceptor: TlsAcceptor,
 ) -> Result<(), Box<dyn Error>> {
     log::info!("handle control/proxy connection");
     //let(r,w) = socket.split();
-    let mut tls_socket = tlsacceptor.accept(socket).await?;
-    //let con = connection::Conn::new(tlsacceptor.accept(socket).await.unwrap());
-
-
-    let mut conn = connection::Conn::new(tls_socket,None);
-    match message::Message::from_conn( &mut conn.tls_socket).await? {
+    let tls_socket = tlsacceptor.accept(socket).await?;
+    let mut conn = connection::Conn::new(tls_socket, None);
+    match message::Message::from_conn(&mut conn.tls_socket).await? {
         Message::AuthReq(authreq) => {
-
-            control::handle_ctrl_conn(conn,authreq).await?;
+            conn.conn_type = Some("ctrl".to_owned());
+            control::handle_ctrl_conn(conn, authreq).await?;
+        }
+        Message::RegProxy(reg_proxy) => {
+            conn.conn_type = Some("proxy".to_owned());
+            log::info!("receive new  proxy connection  {:?}", reg_proxy);
+            control::handle_proxy_conn(conn, reg_proxy).await?;
 
         }
         Message::Unknown(_) => {}

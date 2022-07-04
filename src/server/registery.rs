@@ -1,33 +1,43 @@
 use crate::control::Control;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::DerefMut;
+use std::rc::Rc;
 use std::sync::{Arc, RwLock};
+use tokio::sync::Mutex;
+//use tokio::sync::RwLock;
 extern crate lazy_static;
-
+type SharedControl = Arc<Mutex<Control>>;
 lazy_static::lazy_static! {
-    static  ref  CONTROL_REGISTERY : RwLock<HashMap<String, Arc<Control>>> = RwLock::new(HashMap::new());
+    static  ref  CONTROL_REGISTERY : RwLock<HashMap<String, Arc<Mutex<Control>>>> = RwLock::new(HashMap::new());
 
 }
-pub fn get_control_cache(id: &str) -> Option<Arc<Control>> {
-    let mut control: Option<Arc<Control>> = None;
-    if let Ok(lock) = CONTROL_REGISTERY.read() {
-        control = Some(lock.get(&id.to_owned()).unwrap().clone());
+pub fn get_control_cache(id: &str) -> Option<SharedControl> {
+    let  mut control: Option<SharedControl> = None;
+    if let Ok(lock) = CONTROL_REGISTERY.read(){
+        control = Some(lock.get(id).unwrap().clone());
     }
 
     control
 }
-pub  async fn add_control_cache(ctrl: Control) -> Option<Arc<Control>> {
-    let mut old: Option<Arc<Control>> = None;
-    if let Ok(mut wlock) = CONTROL_REGISTERY.write() {
-        if wlock.contains_key(&ctrl.id) {
-            old = wlock.remove(&ctrl.id);
-        }
-        wlock.insert(ctrl.id.clone(), Arc::new(ctrl));
+pub async fn add_control_cache(id: String, ctrl: SharedControl) -> Option<SharedControl> {
+    let mut old: Option<SharedControl> = None;
+    if let Ok(mut lock) = CONTROL_REGISTERY.write() {
+        //let key = c.id.clone();
+        // drop(c);
+        old = lock.insert(id, ctrl);
+    
     }
     old
 }
-pub fn dump_control_registery() {
+pub async fn dump_control_registery() {
     if let Ok(lock) = CONTROL_REGISTERY.read() {
-        print!("dump {:?}", *lock);
+        for (k,v) in &*lock
+        {
+             let val = v.lock().await;
+             print!("dump [{}:{:?}]",k,val);
+
+        }
+      //  print!("dump {:?}", *lock);
     }
 }
