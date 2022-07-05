@@ -10,3 +10,12 @@ pub struct ReqProxy  {
 pub struct  RegProxy  {
 	pub ClientId: String
 }
+
+
+// This message is sent by the server to the client over a *proxy* connection before it
+// begins to send the bytes of the proxied request.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct StartProxy  {
+	pub Url  :      String, // URL of the tunnel this connection connection is being proxied for
+	pub ClientAddr: String // Network address of the client initiating the connection to the tunnel
+}

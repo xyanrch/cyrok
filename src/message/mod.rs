@@ -8,6 +8,7 @@ use heatbeat::Ping;
 use heatbeat::Pong;
 use proxy::RegProxy;
 use proxy::ReqProxy;
+use proxy::StartProxy;
 use tunnel::NewTunnel;
 use tunnel::ReqTunnel;
 
@@ -37,7 +38,7 @@ pub enum Message {
     ReqProxy(ReqProxy),
     Ping(Ping),
     Pong(Pong),
-    // StartProxy(StartProxy),
+     StartProxy(StartProxy),
     Unknown(Unknown),
 }
 impl Message {
@@ -45,6 +46,17 @@ impl Message {
         tls_socket_arc: &Arc<Mutex<TlsStream<TcpStream>>>,
     ) -> std::result::Result<Message, Error> {
         let mut tls_socket = tls_socket_arc.lock().await;
+        let len = tls_socket.read_u64_le().await?;
+        log::info!("receive message len:{:?}", len);
+        let mut buf = BytesMut::with_capacity(len.try_into().unwrap());
+        tls_socket.read_buf(&mut buf).await?;
+        let raw: Envelope = serde_json::from_slice(&mut buf)?;
+        log::info!("receive parsed message {:?}", raw);
+        Message::frome_envelop(raw)
+    }
+    pub async fn from_conn_2(
+        tls_socket: &mut TlsStream<TcpStream>,
+    ) -> std::result::Result<Message, Error> {
         let len = tls_socket.read_u64_le().await?;
         log::info!("receive message len:{:?}", len);
         let mut buf = BytesMut::with_capacity(len.try_into().unwrap());
@@ -80,7 +92,7 @@ impl Message {
                 Message::Ping(_) => "Ping".to_owned(),
                 Message::Pong(_) => "Pong".to_owned(),
                 Message::NewTunnel(_) => "NewTunnel".to_owned(),
-
+                Message::StartProxy(_)=>"StartProxy".to_owned(),
                 Message::Unknown(_) => "unkown".to_owned(),
             },
 
@@ -93,6 +105,8 @@ impl Message {
                 Message::Ping(ping) => serde_json::to_value(ping).unwrap(),
                 Message::Pong(pong) => serde_json::to_value(pong).unwrap(),
                 Message::NewTunnel(new_tunnel) => serde_json::to_value(new_tunnel).unwrap(),
+                Message::StartProxy(start_proxy) => serde_json::to_value(start_proxy).unwrap(),
+
                 Message::Unknown(unknown) => serde_json::to_value(unknown).unwrap(),
             },
         }

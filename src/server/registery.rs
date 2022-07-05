@@ -1,4 +1,5 @@
 use crate::control::Control;
+use crate::tunnel::Tunnel;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::DerefMut;
@@ -8,9 +9,10 @@ use tokio::sync::Mutex;
 //use tokio::sync::RwLock;
 extern crate lazy_static;
 type SharedControl = Arc<Mutex<Control>>;
+type SharedTunnel = Arc<Mutex<Tunnel>>;
 lazy_static::lazy_static! {
     static  ref  CONTROL_REGISTERY : RwLock<HashMap<String, Arc<Mutex<Control>>>> = RwLock::new(HashMap::new());
-
+    static  ref  TUNNEL_REGISTERY : RwLock<HashMap<String, Arc<Mutex<Tunnel>>>> = RwLock::new(HashMap::new());
 }
 pub fn get_control_cache(id: &str) -> Option<SharedControl> {
     let  mut control: Option<SharedControl> = None;
@@ -40,4 +42,30 @@ pub async fn dump_control_registery() {
         }
       //  print!("dump {:?}", *lock);
     }
+}
+pub fn get_tunnel_cache(id: &str) -> Option<SharedTunnel> {
+    let  mut t: Option<SharedTunnel> = None;
+    if let Ok(lock) = TUNNEL_REGISTERY.read(){
+        t = Some(lock.get(id).unwrap().clone());
+    }
+
+   t
+}
+
+pub async fn add_tunnel_cache(id: String, t: SharedTunnel) -> Option<SharedTunnel> {
+    let mut old: Option<SharedTunnel> = None;
+    if let Ok(mut lock) = TUNNEL_REGISTERY.write() {
+        //let key = c.id.clone();
+        // drop(c);
+        log::info!("add tunnel {}:{:?}",id,t);
+        old = lock.insert(id, t);
+    
+    }
+    old
+}
+pub async fn dump_tunnel_registery() {
+    if let Ok(lock) = TUNNEL_REGISTERY.read() {
+    print!("dump tunnel；{:?}",lock);
+    }
+    
 }
