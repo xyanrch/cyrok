@@ -23,10 +23,10 @@ pub struct Tunnel {
     //listener: TcpListener,
 
     // control connection
-    pub ctl: Weak<Mutex<Control>>,
+    pub ctl: Weak<Control>,
 }
 impl Tunnel {
-    pub fn new(c: &Arc<Mutex<Control>>, req_tunnel: ReqTunnel) -> Tunnel {
+    pub fn new(c: &Arc<Control>, req_tunnel: ReqTunnel) -> Tunnel {
         /* let url =match req_tunnel.Protocol.as_str()
         {
             "tcp" =>

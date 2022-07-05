@@ -73,8 +73,8 @@ async fn handle_date_conn(tcp_socket: TcpStream) -> Result<(), Box<dyn Error>> {
     let l = tunnel.lock().await;
     let c = l.ctl.upgrade().unwrap();
     drop(l);
-    let mut guard_c = c.lock().await;
-    if guard_c.proxys.is_empty() {
+    let mut proxy_guard = c.proxys.lock().await;
+    if proxy_guard.is_empty() {
         //let message = Message::ReqProxy(ReqProxy {});
         // let raw = serde_json::to_string(&message.to_envelop())?;
         //let mut conn = guard_c.conn.lock().await;
@@ -87,9 +87,9 @@ async fn handle_date_conn(tcp_socket: TcpStream) -> Result<(), Box<dyn Error>> {
     // drop(guard_c);
     // sleep(Duration::from_millis(10)).await;
     //  let mut guard_c = c.lock().await;
-    let mut proxy = guard_c.proxys.pop().unwrap();
+    let mut proxy = proxy_guard.pop().unwrap();
 
-    drop(guard_c);
+    drop(proxy_guard);
     {
         let message = Message::StartProxy(StartProxy {
             Url: "http://test.ngrok.me:7777".to_owned(),
@@ -97,15 +97,14 @@ async fn handle_date_conn(tcp_socket: TcpStream) -> Result<(), Box<dyn Error>> {
         });
         let raw = serde_json::to_string(&message.to_envelop())?;
 
-        proxy.1.write_i64_le(raw.len().try_into().unwrap()).await?;
-        proxy.1.write_all(raw.as_bytes()).await?;
+        proxy.write_i64_le(raw.len().try_into().unwrap()).await?;
+        proxy.write_all(raw.as_bytes()).await?;
     }
 
-    proxy.1.write_all(&buf).await?;
-    let mut s = proxy.1;
+    proxy.write_all(&buf).await?;
 
     // Proxying data
-    match tokio::io::copy_bidirectional(&mut s, &mut tcp).await {
+    match tokio::io::copy_bidirectional(&mut proxy, &mut tcp).await {
         Ok((from_client, from_server)) => {
             log::info!(
                 "Copy data from_clinet：{}， from_server:{}",
