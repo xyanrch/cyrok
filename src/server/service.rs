@@ -12,10 +12,12 @@ use serde::Deserializer;
 use serde_json::Map;
 use std::error::Error;
 use std::future::Future;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{tcp, TcpListener, TcpStream};
+use tokio::time::error::Elapsed;
 use tokio::time::sleep;
 //use tokio::prelude::*;
 //use tokio::io::AsyncReadExt;
@@ -64,26 +66,30 @@ async fn handle_date_conn(tcp_socket: TcpStream) -> Result<(), Box<dyn Error>> {
     let mut tcp = tcp_socket;
     tcp.read_buf(&mut buf).await?;
     log::info!("receive public http: {:?}", buf);
+    if buf.is_empty() {
+        return Ok(());
+    }
     let tunnel = get_tunnel_cache("http://test.ngrok.me:7777").unwrap();
     let l = tunnel.lock().await;
     let c = l.ctl.upgrade().unwrap();
     drop(l);
     let mut guard_c = c.lock().await;
     if guard_c.proxys.is_empty() {
-        let message = Message::ReqProxy(ReqProxy {});
+        //let message = Message::ReqProxy(ReqProxy {});
         // let raw = serde_json::to_string(&message.to_envelop())?;
-        let mut conn = guard_c.conn.lock().await;
+        //let mut conn = guard_c.conn.lock().await;
 
-        conn.send_message(message).await?;
+        //  conn.send_message(message).await?;
 
-        //  return Ok(());
+        return Ok(());
     }
 
-    drop(guard_c);
-    sleep(Duration::from_millis(10)).await;
-    let mut guard_c = c.lock().await;
+    // drop(guard_c);
+    // sleep(Duration::from_millis(10)).await;
+    //  let mut guard_c = c.lock().await;
     let mut proxy = guard_c.proxys.pop().unwrap();
 
+    drop(guard_c);
     {
         let message = Message::StartProxy(StartProxy {
             Url: "http://test.ngrok.me:7777".to_owned(),
@@ -97,24 +103,22 @@ async fn handle_date_conn(tcp_socket: TcpStream) -> Result<(), Box<dyn Error>> {
 
     proxy.1.write_all(&buf).await?;
     let mut s = proxy.1;
-    let (mut ri, mut wi) = tcp.split();
-    let (mut ro, mut wo) = io::split(s); //s.split();
-                                         //s.
-                                         //let (mut pp, kk) = s.into_inner();
-                                         // kk.
-                                         //  let (mut ro, mut wo) = pp.split();
 
-    let server_to_client = async {
-        io::copy(&mut ro, &mut wi).await?;
-        // Ok(())
-        wi.shutdown().await
-    };
-    let client_to_server = async {
-        io::copy(&mut ri, &mut wo).await?;
-        // Ok(())
-        wo.shutdown().await
-    };
-    tokio::try_join!(client_to_server, server_to_client)?;
+    // Proxying data
+    match tokio::io::copy_bidirectional(&mut s, &mut tcp).await {
+        Ok((from_client, from_server)) => {
+            log::info!(
+                "Copy data from_clinet：{}， from_server:{}",
+                from_client,
+                from_server
+            );
+        }
+        Err(err) => {
+            log::info!("the err is {}", err);
+        }
+    }
+
+    // let (mut ri, mut wi) = tcp.split();
 
     /*tokio::spawn(async move {
             let mut s = proxy.1;
