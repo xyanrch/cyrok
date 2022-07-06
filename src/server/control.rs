@@ -93,6 +93,7 @@ impl Control {
         if let Ok(proxy) = rx.try_recv() {
             return proxy;
         }
+        log::info!("send reqproxy to client");
 
         self.conn
             .send_message(Message::ReqProxy(ReqProxy {}))
@@ -149,6 +150,7 @@ pub async fn handle_proxy_conn(
     if let Some(control) = registery::get_control_cache(&reg_proxy.ClientId) {
         // let mut proxy_lock_guard = control.proxys.lock().await;
         //  proxy_lock_guard.push(tcpstream);
+        log::debug!("will sent signal");
         control.proxy_tx.send(tcpstream).await?;
         log::debug!("put proxy into pool");
     } else {

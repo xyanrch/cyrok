@@ -44,7 +44,7 @@ pub enum Message {
 }
 impl Message {
     pub async fn from_conn(conn: &Arc<Conn>) -> std::result::Result<Message, Error> {
-        let mut tls_socket_guard = conn.tls_socket.lock().await;
+        let mut tls_socket_guard = conn.read_stream.lock().await;
         let len = tls_socket_guard.read_u64_le().await?;
         log::info!("receive message len:{:?}", len);
         let mut buf = BytesMut::with_capacity(len.try_into().unwrap());

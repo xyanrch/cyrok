@@ -11,7 +11,7 @@ use crate::{
 };
 use std::error::Error;
 use std::{sync::Arc, sync::Weak};
-use tokio::net::TcpStream;
+use tokio::{net::TcpStream, io::{ReadHalf, WriteHalf}};
 use tokio::sync::Mutex;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -20,20 +20,25 @@ use tokio::{
 use tokio_rustls::server::TlsStream;
 #[derive(Debug)]
 pub struct Conn {
-    pub tls_socket: Arc<Mutex<TlsStream<TcpStream>>>,
+   // pub tls_socket: Arc<Mutex<TlsStream<TcpStream>>>,
+    pub read_stream:Arc<Mutex<ReadHalf<TlsStream<TcpStream>>>>,
+    pub write_stream:Arc<Mutex<WriteHalf<TlsStream<TcpStream>>>>,
     pub conn_type: Option<String>,
 }
 impl Conn {
     pub fn new(socket: TlsStream<TcpStream>, conn_type: Option<String>) -> Conn {
+        let (r,w) = tokio::io::split(socket);
         Conn {
-            tls_socket: Arc::new(Mutex::new(socket)),
+           // tls_socket: Arc::new(Mutex::new(socket)),
+            read_stream:Arc::new(Mutex::new(r)),
+            write_stream:Arc::new(Mutex::new(w)),
             conn_type,
         }
     }
 
     pub async fn send_message(&self, message: Message) -> Result<(), Box<dyn Error>> {
         let raw = serde_json::to_string(&message.to_envelop())?;
-        let mut socket_lock_guard = self.tls_socket.lock().await;
+        let mut socket_lock_guard = self.write_stream.lock().await;
         socket_lock_guard
             .write_i64_le(raw.len().try_into().unwrap())
             .await?;

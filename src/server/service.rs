@@ -1,7 +1,7 @@
-use cyrok::connection;
 use crate::control;
 use crate::registery::get_tunnel_cache;
 use bytes::{Bytes, BytesMut};
+use cyrok::connection;
 use cyrok::message::proxy::RegProxy;
 use cyrok::message::proxy::ReqProxy;
 use cyrok::message::proxy::StartProxy;
@@ -67,15 +67,15 @@ async fn handle_date_conn(tcp_socket: TcpStream) -> Result<(), Box<dyn Error>> {
     tcp.read_buf(&mut buf).await?;
     log::info!("receive public http: {:?}", buf);
     if buf.is_empty() {
+        tcp.shutdown().await?;
         return Ok(());
     }
     let tunnel = get_tunnel_cache("http://test.ngrok.me:7777").unwrap();
     let l = tunnel.lock().await;
     let c = l.ctl.upgrade().unwrap();
     drop(l);
-    let mut proxy =  c.get_proxy_conn().await;
+    let mut proxy = c.get_proxy_conn().await;
 
- 
     {
         let message = Message::StartProxy(StartProxy {
             Url: "http://test.ngrok.me:7777".to_owned(),
@@ -97,9 +97,13 @@ async fn handle_date_conn(tcp_socket: TcpStream) -> Result<(), Box<dyn Error>> {
                 from_client,
                 from_server
             );
+           // proxy.shutdown().await?;
+           // tcp.shutdown().await?;
         }
         Err(err) => {
             log::info!("the err is {}", err);
+           // proxy.shutdown().await?;
+           // tcp.shutdown().await?;
         }
     }
 
