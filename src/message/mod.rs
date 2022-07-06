@@ -12,6 +12,7 @@ use proxy::StartProxy;
 use tunnel::NewTunnel;
 use tunnel::ReqTunnel;
 
+use crate::connection::Conn;
 use bytes::BytesMut;
 use std::io::Error;
 use std::{sync::Arc, sync::Weak};
@@ -38,18 +39,16 @@ pub enum Message {
     ReqProxy(ReqProxy),
     Ping(Ping),
     Pong(Pong),
-     StartProxy(StartProxy),
+    StartProxy(StartProxy),
     Unknown(Unknown),
 }
 impl Message {
-    pub async fn from_conn(
-        tls_socket_arc: &Arc<Mutex<TlsStream<TcpStream>>>,
-    ) -> std::result::Result<Message, Error> {
-        let mut tls_socket = tls_socket_arc.lock().await;
-        let len = tls_socket.read_u64_le().await?;
+    pub async fn from_conn(conn: &Arc<Conn>) -> std::result::Result<Message, Error> {
+        let mut tls_socket_guard = conn.tls_socket.lock().await;
+        let len = tls_socket_guard.read_u64_le().await?;
         log::info!("receive message len:{:?}", len);
         let mut buf = BytesMut::with_capacity(len.try_into().unwrap());
-        tls_socket.read_buf(&mut buf).await?;
+        tls_socket_guard.read_buf(&mut buf).await?;
         let raw: Envelope = serde_json::from_slice(&mut buf)?;
         log::info!("receive parsed message {:?}", raw);
         Message::frome_envelop(raw)
@@ -92,7 +91,7 @@ impl Message {
                 Message::Ping(_) => "Ping".to_owned(),
                 Message::Pong(_) => "Pong".to_owned(),
                 Message::NewTunnel(_) => "NewTunnel".to_owned(),
-                Message::StartProxy(_)=>"StartProxy".to_owned(),
+                Message::StartProxy(_) => "StartProxy".to_owned(),
                 Message::Unknown(_) => "unkown".to_owned(),
             },
 

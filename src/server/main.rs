@@ -14,7 +14,6 @@ use tokio_rustls::rustls::{self, Certificate, PrivateKey};
 use tokio_rustls::TlsAcceptor;
 
 use crate::cli::Options;
-mod connection;
 mod control;
 mod registery;
 mod tunnel;

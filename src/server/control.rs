@@ -1,7 +1,7 @@
-use crate::connection::Conn;
 use crate::registery;
 use crate::tunnel::Tunnel;
 use bytes::BytesMut;
+use cyrok::connection::Conn;
 use cyrok::{
     message::{
         self,
@@ -22,16 +22,21 @@ use std::{
     sync::{atomic::AtomicBool, Arc, RwLock},
     time::Duration,
 };
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{tcp, TcpListener, TcpStream};
+use tokio::{
+    io::{self, AsyncReadExt, AsyncWriteExt, BufReader},
+    sync::mpsc,
+};
 use tokio::{net::TcpSocket, time::error::Elapsed};
 use tokio::{sync::Mutex, time::sleep};
 use tokio_rustls::server::TlsStream;
 #[derive(Debug)]
 pub struct Control {
-    pub conn: Arc<Mutex<Conn>>,
+    pub conn: Arc<Conn>,
     pub id: String, //tunnels:Vec<Tunnel>,
     pub proxys: Arc<Mutex<Vec<TlsStream<TcpStream>>>>,
+    pub proxy_rx: Mutex<mpsc::Receiver<TlsStream<TcpStream>>>,
+    pub proxy_tx: mpsc::Sender<TlsStream<TcpStream>>,
 }
 
 impl Control {
@@ -39,8 +44,6 @@ impl Control {
         let t = Tunnel::new(&self, req_tunnel);
         {
             self.conn
-                .lock()
-                .await
                 .send_message(Message::NewTunnel(NewTunnel {
                     Url: t.url.clone(),
                     Protocol: t.req.Protocol.clone(),
@@ -54,10 +57,8 @@ impl Control {
         registery::add_tunnel_cache(t.url.clone(), Arc::new(Mutex::new(t))).await;
     }
     pub async fn wait_message(self: &Arc<Self>) -> Result<(), Box<dyn Error>> {
-        // let mut lock = conn.lock().await;
-        let socket = Conn::get_socket(&self.conn).await;
         loop {
-            match message::Message::from_conn(&socket).await? {
+            match message::Message::from_conn(&self.conn).await? {
                 Message::ReqTunnel(req_tunnel) => {
                     log::info!("MESSAG:{:?}", req_tunnel);
                     self.register_tunnel(req_tunnel).await;
@@ -67,11 +68,7 @@ impl Control {
                     log::info!("Regproxy:{:?}", reg_proxy);
                 }
                 Message::Ping(_) => {
-                    self.conn
-                        .lock()
-                        .await
-                        .send_message(Message::Pong(Pong {}))
-                        .await?;
+                    self.conn.send_message(Message::Pong(Pong {})).await?;
                     log::info!("send pong");
                 }
                 Message::Unknown(_) => {}
@@ -87,22 +84,44 @@ impl Control {
     }
 
     pub async fn send_message(&self, message: Message) -> Result<(), Box<dyn Error>> {
-        let mut lock = self.conn.lock().await;
-        lock.send_message(message).await
+        self.conn.send_message(message).await
+    }
+    pub async fn get_proxy_conn(&self) -> TlsStream<TcpStream> {
+  
+        //let mut rx:mpsc::Receiver<TlsStream<TcpStream>> = self.proxy_rx.clone();
+        let mut rx = self.proxy_rx.lock().await;
+        if let Ok(proxy) = rx.try_recv() {
+            return proxy;
+        }
+
+        self.conn
+            .send_message(Message::ReqProxy(ReqProxy {}))
+            .await
+            .unwrap();
+
+           rx.recv().await.unwrap()
+
+        // else {
+       // proxy_guard.pop().unwrap()
+
+        //  }
     }
 }
 pub async fn handle_ctrl_conn(
     connection: Conn,
     msg: message::auth::AuthReq,
 ) -> Result<(), Box<dyn Error>> {
+    let (tx, rx) = mpsc::channel::<TlsStream<TcpStream>>(10);
     let control = Arc::new(Control {
-        conn: Arc::new(Mutex::new(connection)),
+        conn: Arc::new(connection),
         id: match &msg.ClientId[..] {
             // it's a new session, assign an ID
             "" => "1234567890".to_owned(),
             _ => msg.ClientId,
         },
         proxys: Arc::new(Mutex::new(Vec::new())),
+        proxy_rx: Mutex::new(rx),
+        proxy_tx: tx,
     });
     registery::add_control_cache(control.id.clone(), control.clone()).await;
 
@@ -128,8 +147,9 @@ pub async fn handle_proxy_conn(
     reg_proxy: RegProxy,
 ) -> Result<(), Box<dyn Error>> {
     if let Some(control) = registery::get_control_cache(&reg_proxy.ClientId) {
-        let mut proxy_lock_guard = control.proxys.lock().await;
-        proxy_lock_guard.push(tcpstream);
+        // let mut proxy_lock_guard = control.proxys.lock().await;
+        //  proxy_lock_guard.push(tcpstream);
+        control.proxy_tx.send(tcpstream).await?;
         log::debug!("put proxy into pool");
     } else {
         log::error!("Can't find a control connection with this proxy");

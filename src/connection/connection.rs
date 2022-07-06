@@ -1,4 +1,4 @@
-use cyrok::{
+use crate::{
     message::{
         self,
         auth::AuthResp,
@@ -30,14 +30,8 @@ impl Conn {
             conn_type,
         }
     }
-    pub async fn get_socket(conn:&Arc<Mutex<Conn>>)->Arc<Mutex<TlsStream<TcpStream>>> {
-        let tls_socket_guard = conn.lock().await;
-        tls_socket_guard.tls_socket.clone()
 
-    }
-        
-   
-    pub async fn send_message(&mut self, message: Message) -> Result<(), Box<dyn Error>> {
+    pub async fn send_message(&self, message: Message) -> Result<(), Box<dyn Error>> {
         let raw = serde_json::to_string(&message.to_envelop())?;
         let mut socket_lock_guard = self.tls_socket.lock().await;
         socket_lock_guard

@@ -1,4 +1,4 @@
-use crate::connection;
+use cyrok::connection;
 use crate::control;
 use crate::registery::get_tunnel_cache;
 use bytes::{Bytes, BytesMut};
@@ -73,23 +73,9 @@ async fn handle_date_conn(tcp_socket: TcpStream) -> Result<(), Box<dyn Error>> {
     let l = tunnel.lock().await;
     let c = l.ctl.upgrade().unwrap();
     drop(l);
-    let mut proxy_guard = c.proxys.lock().await;
-    if proxy_guard.is_empty() {
-        //let message = Message::ReqProxy(ReqProxy {});
-        // let raw = serde_json::to_string(&message.to_envelop())?;
-        //let mut conn = guard_c.conn.lock().await;
+    let mut proxy =  c.get_proxy_conn().await;
 
-        //  conn.send_message(message).await?;
-
-        return Ok(());
-    }
-
-    // drop(guard_c);
-    // sleep(Duration::from_millis(10)).await;
-    //  let mut guard_c = c.lock().await;
-    let mut proxy = proxy_guard.pop().unwrap();
-
-    drop(proxy_guard);
+ 
     {
         let message = Message::StartProxy(StartProxy {
             Url: "http://test.ngrok.me:7777".to_owned(),
