@@ -43,7 +43,7 @@ struct ListenerWrapper {
 impl ListenerWrapper {
     async fn run(&mut self) -> Result<(), Box<dyn Error + '_>> {
         loop {
-            let (tcp_socket, _) = self.listener.accept().await?;
+            let ( tcp_socket, _) = self.listener.accept().await?;
             let ltype = self.listener_type.clone();
             let tlsaccetor = self.tls_acceptor.clone();
             tokio::spawn(async move {
@@ -64,18 +64,18 @@ impl ListenerWrapper {
     }
 }
 
-async fn handle_http_conn(tcp_socket: TcpStream) -> Result<(), Box<dyn Error>> {
+async fn handle_http_conn(mut tcp_socket: TcpStream) -> Result<(), Box<dyn Error>> {
     let mut headers = [httparse::EMPTY_HEADER; 64];
     let mut req = httparse::Request::new(&mut headers);
     //
     //log::info!("receive http connection")
-    let mut buf = BytesMut::with_capacity(1024);
-    let mut tcp = tcp_socket;
-    tcp.read_buf(&mut buf).await?;
-    log::info!("receive public http: {:?}", buf);
+    let mut buf = [0;1024];
+    //tcp.read_buf(&mut buf).await?;
+    let n = tcp_socket.peek(&mut buf).await;
+    log::info!("receive public http: {:?},{:?}", buf, n);
 
     if buf.is_empty() {
-        tcp.shutdown().await?;
+        tcp_socket.shutdown().await?;
         return Ok(());
     }
     req.parse(&buf).unwrap();
@@ -98,7 +98,7 @@ async fn handle_http_conn(tcp_socket: TcpStream) -> Result<(), Box<dyn Error>> {
     {
         let message = Message::StartProxy(StartProxy {
             Url: "http://test.ngrok.me:7777".to_owned(),
-            ClientAddr: tcp.peer_addr().unwrap().clone().to_string(),
+            ClientAddr: tcp_socket.peer_addr().unwrap().clone().to_string(),
         });
         let raw = serde_json::to_string(&message.to_envelop())?;
 
@@ -106,10 +106,10 @@ async fn handle_http_conn(tcp_socket: TcpStream) -> Result<(), Box<dyn Error>> {
         proxy.write_all(raw.as_bytes()).await?;
     }
 
-    proxy.write_all(&buf).await?;
+    // proxy.write_all(&buf).await?;
 
     // Proxying data
-    match tokio::io::copy_bidirectional(&mut proxy, &mut tcp).await {
+    match tokio::io::copy_bidirectional(&mut proxy, &mut tcp_socket).await {
         Ok((from_client, from_server)) => {
             log::info!(
                 "Copy data from_clinet：{}， from_server:{}",
