@@ -42,6 +42,7 @@ pub async fn dump_control_registery() {
 pub fn get_tunnel_cache(id: &str) -> Option<SharedTunnel> {
     let mut t: Option<SharedTunnel> = None;
     if let Ok(lock) = TUNNEL_REGISTERY.read() {
+        log::info!("ID:{}", id);
         t = Some(lock.get(id).unwrap().clone());
     }
 

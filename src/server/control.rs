@@ -87,7 +87,6 @@ impl Control {
         self.conn.send_message(message).await
     }
     pub async fn get_proxy_conn(&self) -> TlsStream<TcpStream> {
-  
         //let mut rx:mpsc::Receiver<TlsStream<TcpStream>> = self.proxy_rx.clone();
         let mut rx = self.proxy_rx.lock().await;
         if let Ok(proxy) = rx.try_recv() {
@@ -100,10 +99,10 @@ impl Control {
             .await
             .unwrap();
 
-           rx.recv().await.unwrap()
+        rx.recv().await.unwrap()
 
         // else {
-       // proxy_guard.pop().unwrap()
+        // proxy_guard.pop().unwrap()
 
         //  }
     }
@@ -135,7 +134,7 @@ pub async fn handle_ctrl_conn(
         }))
         .await?;
     control.send_message(Message::ReqProxy(ReqProxy {})).await?;
-    let ctrol_clone = control.clone();
+
     tokio::spawn(async move {
         control.wait_message().await.expect("connection closed");
     });

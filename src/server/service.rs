@@ -8,8 +8,11 @@ use cyrok::message::proxy::StartProxy;
 use cyrok::message::{self, proxy, Message};
 use futures::future::ok;
 use futures::SinkExt;
+use hyper::http::{Request, Response, StatusCode};
+use hyper::{server::conn::Http, service::service_fn, Body};
 use serde::Deserializer;
 use serde_json::Map;
+use std::convert::Infallible;
 use std::error::Error;
 use std::future::Future;
 use std::sync::atomic::AtomicBool;
@@ -51,7 +54,7 @@ impl ListenerWrapper {
                         }
                     }
                     Type::Data => {
-                        handle_date_conn(tcp_socket)
+                        handle_http_conn(tcp_socket)
                             .await
                             .expect("Transport endpoint is not connected");
                     }
@@ -60,17 +63,33 @@ impl ListenerWrapper {
         }
     }
 }
-async fn handle_date_conn(tcp_socket: TcpStream) -> Result<(), Box<dyn Error>> {
+
+async fn handle_http_conn(tcp_socket: TcpStream) -> Result<(), Box<dyn Error>> {
+    let mut headers = [httparse::EMPTY_HEADER; 64];
+    let mut req = httparse::Request::new(&mut headers);
+    //
     //log::info!("receive http connection")
     let mut buf = BytesMut::with_capacity(1024);
     let mut tcp = tcp_socket;
     tcp.read_buf(&mut buf).await?;
     log::info!("receive public http: {:?}", buf);
+
     if buf.is_empty() {
         tcp.shutdown().await?;
         return Ok(());
     }
-    let tunnel = get_tunnel_cache("http://test.ngrok.me:7777").unwrap();
+    req.parse(&buf).unwrap();
+    log::info!("parsed http req:{:?}", req);
+    let t = req
+        .headers
+        .iter()
+        .find(|&x| x.name == "Host")
+        .unwrap()
+        .value;
+    let url = format!("http://{}", std::str::from_utf8(t).unwrap());
+    //let host_name = std::str::from_utf8(t).unwrap();
+    log::info!("host:{}", url);
+    let tunnel = get_tunnel_cache(&url).unwrap();
     let l = tunnel.lock().await;
     let c = l.ctl.upgrade().unwrap();
     drop(l);
@@ -97,13 +116,13 @@ async fn handle_date_conn(tcp_socket: TcpStream) -> Result<(), Box<dyn Error>> {
                 from_client,
                 from_server
             );
-           // proxy.shutdown().await?;
-           // tcp.shutdown().await?;
+            // proxy.shutdown().await?;
+            // tcp.shutdown().await?;
         }
         Err(err) => {
             log::info!("the err is {}", err);
-           // proxy.shutdown().await?;
-           // tcp.shutdown().await?;
+            // proxy.shutdown().await?;
+            // tcp.shutdown().await?;
         }
     }
 
