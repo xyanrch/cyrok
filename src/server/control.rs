@@ -54,7 +54,7 @@ impl Control {
                 .unwrap();
             //TODO add tunnel to control
         }
-        registery::add_tunnel_cache(t.url.clone(), Arc::new(Mutex::new(t))).await;
+        registery::add_tunnel_cache(t.url.clone(), Arc::new(t)).await;
     }
     pub async fn wait_message(self: &Arc<Self>) -> Result<(), Box<dyn Error>> {
         loop {

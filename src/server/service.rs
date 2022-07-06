@@ -43,7 +43,7 @@ struct ListenerWrapper {
 impl ListenerWrapper {
     async fn run(&mut self) -> Result<(), Box<dyn Error + '_>> {
         loop {
-            let ( tcp_socket, _) = self.listener.accept().await?;
+            let (tcp_socket, _) = self.listener.accept().await?;
             let ltype = self.listener_type.clone();
             let tlsaccetor = self.tls_acceptor.clone();
             tokio::spawn(async move {
@@ -68,36 +68,35 @@ async fn handle_http_conn(mut tcp_socket: TcpStream) -> Result<(), Box<dyn Error
     let mut headers = [httparse::EMPTY_HEADER; 64];
     let mut req = httparse::Request::new(&mut headers);
     //
-    //log::info!("receive http connection")
-    let mut buf = [0;1024];
+    let mut buf = [0; 1024];
     //tcp.read_buf(&mut buf).await?;
-    let n = tcp_socket.peek(&mut buf).await;
-    log::info!("receive public http: {:?},{:?}", buf, n);
-
-    if buf.is_empty() {
+    tcp_socket.peek(&mut buf).await.unwrap();
+    if let Err(err) = req.parse(&buf) {
+        log::info!("Parse http request got wrong:{}", err);
         tcp_socket.shutdown().await?;
         return Ok(());
     }
-    req.parse(&buf).unwrap();
-    log::info!("parsed http req:{:?}", req);
-    let t = req
-        .headers
-        .iter()
-        .find(|&x| x.name == "Host")
+    log::debug!("parsed http req:{:?}", req);
+    let url = format!(
+        "http://{}",
+        std::str::from_utf8(
+            req.headers
+                .iter()
+                .find(|&x| x.name == "Host")
+                .unwrap()
+                .value
+        )
         .unwrap()
-        .value;
-    let url = format!("http://{}", std::str::from_utf8(t).unwrap());
+    );
     //let host_name = std::str::from_utf8(t).unwrap();
-    log::info!("host:{}", url);
+    log::debug!("host:{}", url);
     let tunnel = get_tunnel_cache(&url).unwrap();
-    let l = tunnel.lock().await;
-    let c = l.ctl.upgrade().unwrap();
-    drop(l);
+    let c = tunnel.ctl.upgrade().unwrap();
     let mut proxy = c.get_proxy_conn().await;
 
     {
         let message = Message::StartProxy(StartProxy {
-            Url: "http://test.ngrok.me:7777".to_owned(),
+            Url: tunnel.url.clone(),
             ClientAddr: tcp_socket.peer_addr().unwrap().clone().to_string(),
         });
         let raw = serde_json::to_string(&message.to_envelop())?;
@@ -106,9 +105,6 @@ async fn handle_http_conn(mut tcp_socket: TcpStream) -> Result<(), Box<dyn Error
         proxy.write_all(raw.as_bytes()).await?;
     }
 
-    // proxy.write_all(&buf).await?;
-
-    // Proxying data
     match tokio::io::copy_bidirectional(&mut proxy, &mut tcp_socket).await {
         Ok((from_client, from_server)) => {
             log::info!(
@@ -116,66 +112,12 @@ async fn handle_http_conn(mut tcp_socket: TcpStream) -> Result<(), Box<dyn Error
                 from_client,
                 from_server
             );
-            // proxy.shutdown().await?;
-            // tcp.shutdown().await?;
         }
         Err(err) => {
             log::info!("the err is {}", err);
-            // proxy.shutdown().await?;
-            // tcp.shutdown().await?;
         }
     }
 
-    // let (mut ri, mut wi) = tcp.split();
-
-    /*tokio::spawn(async move {
-            let mut s = proxy.1;
-            //let (mut ri, mut wi) = tcp.split();
-           // let (mut ro, mut wo)= s.split();
-             //let (mut pp, _) = s.into_inner();
-            // let (mut ro, mut wo) = pp.split();
-            let mut bufk = BytesMut::with_capacity(10240);
-            loop {
-                if let Ok(n) = s.read_buf(&mut bufk).await {
-                    if n > 0 {
-                        log::info!("read internal contet {:?}", bufk);
-                        tcp.write_all(&mut bufk).await.unwrap();
-                    }
-                }
-               else
-               {
-                    break;
-                }
-
-                log::info!("MMMMMMMMM");
-
-                if let Ok(n) = tcp.read_buf(&mut bufk).await {
-                    if n > 0 {
-                        log::info!("read public contet {:?}", bufk);
-                        s.write_all(&mut bufk).await.unwrap();
-                    }
-                    else
-                    {
-                       // log::info!("eptm");
-                    }
-                }
-                else
-                {
-                    break;
-                }
-            }
-            /*   let server_to_client = async {
-                io::copy(&mut ro, &mut wi).await?;
-                wi.shutdown().await
-            };
-            let client_to_server = async {
-                io::copy(&mut ri, &mut wo).await?;
-                wo.shutdown().await
-            };*/
-
-            log::info!("END???????????");
-        });
-    */
     Ok(())
 }
 async fn handle_tunnel_conn(

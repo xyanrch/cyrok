@@ -33,7 +33,7 @@ fn load_keys(path: &Path) -> io::Result<Vec<PrivateKey>> {
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let opts = cli::Options::instance();
 
-    flexi_logger::Logger::try_with_str("info")
+    flexi_logger::Logger::try_with_str("debug")
         .unwrap()
         .start()
         .expect("the logger should start");
