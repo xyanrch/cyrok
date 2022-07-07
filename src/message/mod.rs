@@ -17,8 +17,10 @@ use tunnel::ReqTunnel;
 use crate::connection::Conn;
 use bytes::BytesMut;
 use std::io::Error;
+//use std::error::Error;
 use std::{sync::Arc, sync::Weak};
 use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 use tokio_rustls::server::TlsStream;
@@ -49,25 +51,36 @@ impl Message {
         conn: &Arc<Conn<T>>,
     ) -> std::result::Result<Message, Error> {
         let mut tls_socket_guard = conn.read_stream.lock().await;
-        let len = tls_socket_guard.read_u64_le().await?;
-        log::info!("receive message len:{:?}", len);
-        let mut buf = BytesMut::with_capacity(len.try_into().unwrap());
-        tls_socket_guard.read_buf(&mut buf).await?;
-        let raw: Envelope = serde_json::from_slice(&mut buf)?;
-        log::info!("receive parsed message {:?}", raw);
-        Message::frome_envelop(raw)
+
+        Message::from_stream(&mut *tls_socket_guard).await
     }
-    pub async fn from_conn_2(
-        tls_socket: &mut TlsStream<TcpStream>,
+
+    pub async fn from_stream<T: AsyncRead + Unpin>(
+        stream: &mut T,
     ) -> std::result::Result<Message, Error> {
-        let len = tls_socket.read_u64_le().await?;
+        let len = stream.read_u64_le().await?;
         log::info!("receive message len:{:?}", len);
         let mut buf = BytesMut::with_capacity(len.try_into().unwrap());
-        tls_socket.read_buf(&mut buf).await?;
+        stream.read_buf(&mut buf).await?;
         let raw: Envelope = serde_json::from_slice(&mut buf)?;
         log::info!("receive parsed message {:?}", raw);
         Message::frome_envelop(raw)
     }
+    pub async fn send_message<T: AsyncRead + AsyncWrite + Unpin>(
+        &self,
+        conn: &Arc<Conn<T>>,
+    ) -> Result<(), Error> {
+        let raw = serde_json::to_string(&self.to_envelop())?;
+
+        let mut socket_lock_guard = conn.write_stream.lock().await;
+        socket_lock_guard
+            .write_i64_le(raw.len().try_into().unwrap())
+            .await?;
+        socket_lock_guard.write_all(raw.as_bytes()).await?;
+
+        Ok(())
+    }
+
     pub fn frome_envelop(val: Envelope) -> std::result::Result<Message, Error> {
         let message = match &val.Type[..] {
             "Auth" => Message::AuthReq(serde_json::from_value(val.Payload).unwrap()),

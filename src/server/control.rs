@@ -1,7 +1,7 @@
 use crate::registery;
 use crate::tunnel::Tunnel;
 use bytes::BytesMut;
-use cyrok::connection::Conn;
+use cyrok::connection::{Conn, TlsConnnection};
 use cyrok::{
     message::{
         self,
@@ -30,28 +30,27 @@ use tokio::{
 use tokio::{net::TcpSocket, time::error::Elapsed};
 use tokio::{sync::Mutex, time::sleep};
 use tokio_rustls::server::TlsStream;
+
 #[derive(Debug)]
 pub struct Control {
-    pub conn: Arc<Conn<TlsStream<TcpStream>>>,
+    pub conn: Arc<TlsConnnection>,
     pub id: String, //tunnels:Vec<Tunnel>,
-    pub proxys: Arc<Mutex<Vec<TlsStream<TcpStream>>>>,
-    pub proxy_rx: Mutex<mpsc::Receiver<TlsStream<TcpStream>>>,
-    pub proxy_tx: mpsc::Sender<TlsStream<TcpStream>>,
+    // pub proxys: Arc<Mutex<Vec<TlsStream<TcpStream>>>>,
+    pub proxy_rx: Mutex<mpsc::Receiver<Arc<TlsConnnection>>>,
+    pub proxy_tx: mpsc::Sender<Arc<TlsConnnection>>,
 }
 
 impl Control {
     async fn register_tunnel(self: &Arc<Self>, req_tunnel: ReqTunnel) {
         let t = Tunnel::new(&self, req_tunnel);
         {
-            self.conn
-                .send_message(Message::NewTunnel(NewTunnel {
-                    Url: t.url.clone(),
-                    Protocol: t.req.Protocol.clone(),
-                    ReqId: t.req.ReqId.clone(),
-                    Error: String::new(),
-                }))
-                .await
-                .unwrap();
+            self.send_message(Message::NewTunnel(NewTunnel {
+                Url: t.url.clone(),
+                Protocol: t.req.Protocol.clone(),
+                ReqId: t.req.ReqId.clone(),
+                Error: String::new(),
+            }))
+            .await;
             //TODO add tunnel to control
         }
         registery::add_tunnel_cache(t.url.clone(), Arc::new(t)).await;
@@ -68,7 +67,7 @@ impl Control {
                     log::info!("Regproxy:{:?}", reg_proxy);
                 }
                 Message::Ping(_) => {
-                    self.conn.send_message(Message::Pong(Pong {})).await?;
+                    self.send_message(Message::Pong(Pong {})).await;
                     log::info!("send pong");
                 }
                 Message::Unknown(_) => {}
@@ -83,10 +82,11 @@ impl Control {
         // Ok(())
     }
 
-    pub async fn send_message(&self, message: Message) -> Result<(), Box<dyn Error>> {
-        self.conn.send_message(message).await
+    pub async fn send_message(&self, message: Message) {
+        message.send_message(&self.conn).await.unwrap(); //
+                                                         //self.conn.send_message(message).await
     }
-    pub async fn get_proxy_conn(&self) -> TlsStream<TcpStream> {
+    pub async fn get_proxy_conn(&self) -> Arc<TlsConnnection> {
         //let mut rx:mpsc::Receiver<TlsStream<TcpStream>> = self.proxy_rx.clone();
         let mut rx = self.proxy_rx.lock().await;
         if let Ok(proxy) = rx.try_recv() {
@@ -94,10 +94,7 @@ impl Control {
         }
         log::info!("send reqproxy to client");
 
-        self.conn
-            .send_message(Message::ReqProxy(ReqProxy {}))
-            .await
-            .unwrap();
+        self.send_message(Message::ReqProxy(ReqProxy {})).await;
 
         rx.recv().await.unwrap()
 
@@ -108,18 +105,18 @@ impl Control {
     }
 }
 pub async fn handle_ctrl_conn(
-    connection: Conn<TlsStream<TcpStream>>,
+    connection: Arc<TlsConnnection>,
     msg: message::auth::AuthReq,
 ) -> Result<(), Box<dyn Error>> {
-    let (tx, rx) = mpsc::channel::<TlsStream<TcpStream>>(10);
+    let (tx, rx) = mpsc::channel::<Arc<TlsConnnection>>(10);
     let control = Arc::new(Control {
-        conn: Arc::new(connection),
+        conn: connection,
         id: match &msg.ClientId[..] {
             // it's a new session, assign an ID
             "" => "1234567890".to_owned(),
             _ => msg.ClientId,
         },
-        proxys: Arc::new(Mutex::new(Vec::new())),
+        // proxys: Arc::new(Mutex::new(Vec::new())),
         proxy_rx: Mutex::new(rx),
         proxy_tx: tx,
     });
@@ -132,25 +129,22 @@ pub async fn handle_ctrl_conn(
             ClientId: control.id.clone(),
             Error: "".to_owned(),
         }))
-        .await?;
-    control.send_message(Message::ReqProxy(ReqProxy {})).await?;
+        .await;
+    control.send_message(Message::ReqProxy(ReqProxy {})).await;
 
-    tokio::spawn(async move {
-        control.wait_message().await.expect("connection closed");
-    });
+    //tokio::spawn(async move {
+    control.wait_message().await?;
+    // });
 
     Ok(())
 }
 
 pub async fn handle_proxy_conn(
-    tcpstream: TlsStream<TcpStream>,
+    proxy_conn: TlsConnnection,
     reg_proxy: RegProxy,
 ) -> Result<(), Box<dyn Error>> {
     if let Some(control) = registery::get_control_cache(&reg_proxy.ClientId) {
-        // let mut proxy_lock_guard = control.proxys.lock().await;
-        //  proxy_lock_guard.push(tcpstream);
-        log::debug!("will sent signal");
-        control.proxy_tx.send(tcpstream).await?;
+        control.proxy_tx.send(Arc::new(proxy_conn)).await?;
         log::debug!("put proxy into pool");
     } else {
         log::error!("Can't find a control connection with this proxy");

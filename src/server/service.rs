@@ -92,31 +92,29 @@ async fn handle_http_conn(mut tcp_socket: TcpStream) -> Result<(), Box<dyn Error
     log::debug!("host:{}", url);
     let tunnel = get_tunnel_cache(&url).unwrap();
     let c = tunnel.ctl.upgrade().unwrap();
-    let mut proxy = c.get_proxy_conn().await;
+    let proxy = c.get_proxy_conn().await;
 
     {
-        let message = Message::StartProxy(StartProxy {
+        Message::StartProxy(StartProxy {
             Url: tunnel.url.clone(),
             ClientAddr: tcp_socket.peer_addr().unwrap().clone().to_string(),
-        });
-        let raw = serde_json::to_string(&message.to_envelop())?;
-
-        proxy.write_i64_le(raw.len().try_into().unwrap()).await?;
-        proxy.write_all(raw.as_bytes()).await?;
+        })
+        .send_message(&proxy)
+        .await?;
     }
+    let (mut r, mut w) = tcp_socket.split();
+    //let wo = *proxy.read_stream.lock().await;
+    let client_to_server = async {
+        io::copy(&mut r, &mut *proxy.write_stream.lock().await).await
+        // wo.shutdown().await
+    };
 
-    match tokio::io::copy_bidirectional(&mut proxy, &mut tcp_socket).await {
-        Ok((from_client, from_server)) => {
-            log::info!(
-                "Copy data from_clinet：{}， from_server:{}",
-                from_client,
-                from_server
-            );
-        }
-        Err(err) => {
-            log::info!("the err is {}", err);
-        }
-    }
+    let server_to_client = async {
+        io::copy(&mut *proxy.read_stream.lock().await, &mut w).await
+        // wi.shutdown().await
+    };
+
+    tokio::try_join!(client_to_server, server_to_client)?;
 
     Ok(())
 }
@@ -127,17 +125,24 @@ async fn handle_tunnel_conn(
     log::info!("handle control/proxy connection");
     //let(r,w) = socket.split();
     let mut tls_socket = tlsacceptor.accept(socket).await?;
-
-    match message::Message::from_conn_2(&mut tls_socket).await? {
+    //let mut conn = connection::Conn::new(tls_socket, None);
+    match message::Message::from_stream(&mut tls_socket).await? {
         Message::AuthReq(authreq) => {
-            let mut conn = connection::Conn::new(tls_socket, None);
-            conn.conn_type = Some("ctrl".to_owned());
-            control::handle_ctrl_conn(conn, authreq).await?;
+            // conn.conn_type = Some("ctrl".to_owned());
+            control::handle_ctrl_conn(
+                Arc::new(connection::Conn::new(tls_socket, Some("ctrl".to_owned()))),
+                authreq,
+            )
+            .await?;
         }
         Message::RegProxy(reg_proxy) => {
             // conn.conn_type = Some("proxy".to_owned());
             log::info!("receive new  proxy connection  {:?}", reg_proxy);
-            control::handle_proxy_conn(tls_socket, reg_proxy).await?;
+            control::handle_proxy_conn(
+                connection::Conn::new(tls_socket, Some("proxy".to_owned())),
+                reg_proxy,
+            )
+            .await?;
         }
         Message::Unknown(_) => {}
         _ => {}
