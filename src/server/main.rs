@@ -38,6 +38,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .start()
         .expect("the logger should start");
     log::info!("server begin");
+    log::info!("opts:{:?}", opts);
     //
     let certs = load_certs(Path::new("assets/server/tls/snakeoil.crt"))?;
     let mut keys = load_keys(Path::new("assets/server/tls/snakeoil.key"))?;
@@ -52,11 +53,17 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let data_listener = TcpListener::bind(opts.http_addr).await?;
     let ctrl_listener = TcpListener::bind("0.0.0.0:4443").await?;
+    let https_listener = match opts.https_addr {
+        Some(https_addr) => Some(TcpListener::bind(https_addr).await?),
+
+        None => None,
+    };
 
     service::run(
         tls_acceptor,
         ctrl_listener,
         data_listener,
+        // https_listener,
         tokio::signal::ctrl_c(),
     )
     .await;
@@ -66,9 +73,3 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-/*async fn transfer(mut inbound: TcpStream, proxy_addr: String) -> Result<(), Box<dyn Error>> {
-
-    let (mut ri, mut wi) = inbound.split();
-
-    Ok(())
-//}*/

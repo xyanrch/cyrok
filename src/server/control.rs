@@ -32,7 +32,7 @@ use tokio::{sync::Mutex, time::sleep};
 use tokio_rustls::server::TlsStream;
 #[derive(Debug)]
 pub struct Control {
-    pub conn: Arc<Conn>,
+    pub conn: Arc<Conn<TlsStream<TcpStream>>>,
     pub id: String, //tunnels:Vec<Tunnel>,
     pub proxys: Arc<Mutex<Vec<TlsStream<TcpStream>>>>,
     pub proxy_rx: Mutex<mpsc::Receiver<TlsStream<TcpStream>>>,
@@ -108,7 +108,7 @@ impl Control {
     }
 }
 pub async fn handle_ctrl_conn(
-    connection: Conn,
+    connection: Conn<TlsStream<TcpStream>>,
     msg: message::auth::AuthReq,
 ) -> Result<(), Box<dyn Error>> {
     let (tx, rx) = mpsc::channel::<TlsStream<TcpStream>>(10);

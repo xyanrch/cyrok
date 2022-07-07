@@ -4,6 +4,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 #[derive(Debug)]
 pub struct Options {
     pub http_addr: SocketAddr,
+    pub https_addr: Option<SocketAddr>,
     //httpsAddr  string
     //tunnelAddr string
     pub domain: String, //tlsCrt     string
@@ -22,7 +23,8 @@ impl Options {
             .author("cyr")
             .about("cyrok server app")
             .setting(AppSettings::ColoredHelp)
-            .arg(Arg::from_usage("--httaddr [httpaddr] 'Public address for HTTP connections, empty string to disable'"))
+            .arg(Arg::from_usage("--httpaddr [httpaddr] 'Public address for HTTP connections, empty string to disable'"))
+            .arg(Arg::from_usage("--httpsaddr [httpsaddr] 'Public address for HTTPs connections, empty string to disable'"))
             .arg(Arg::from_usage("--domain [domain] 'Domain where the tunnels are hosted'"))
             .get_matches();
 
@@ -32,6 +34,18 @@ impl Options {
                 .unwrap_or("0.0.0.0:7777")
                 .parse::<SocketAddr>()
                 .unwrap(),
+            https_addr: match matches
+                .value_of("httpsaddr")
+                .unwrap_or("0.0.0.0:4444")
+                .parse::<SocketAddr>()
+            {
+                Ok(addr) => Some(addr),
+                Err(err) => {
+                    print!("error:{}", err);
+                    None
+                }
+            },
+
             domain: matches
                 .value_of("domain")
                 .unwrap_or("ngrok.me")

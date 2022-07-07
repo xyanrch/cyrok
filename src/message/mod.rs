@@ -9,6 +9,8 @@ use heatbeat::Pong;
 use proxy::RegProxy;
 use proxy::ReqProxy;
 use proxy::StartProxy;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncWrite;
 use tunnel::NewTunnel;
 use tunnel::ReqTunnel;
 
@@ -43,7 +45,9 @@ pub enum Message {
     Unknown(Unknown),
 }
 impl Message {
-    pub async fn from_conn(conn: &Arc<Conn>) -> std::result::Result<Message, Error> {
+    pub async fn from_conn<T: AsyncRead + AsyncWrite + Unpin>(
+        conn: &Arc<Conn<T>>,
+    ) -> std::result::Result<Message, Error> {
         let mut tls_socket_guard = conn.read_stream.lock().await;
         let len = tls_socket_guard.read_u64_le().await?;
         log::info!("receive message len:{:?}", len);

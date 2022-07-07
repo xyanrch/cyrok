@@ -11,27 +11,39 @@ use crate::{
 };
 use std::error::Error;
 use std::{sync::Arc, sync::Weak};
-use tokio::{net::TcpStream, io::{ReadHalf, WriteHalf}};
-use tokio::sync::Mutex;
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    sync::Mutex,
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     time::error::Elapsed,
 };
+use tokio::{
+    io::{ReadHalf, WriteHalf},
+    net::TcpStream,
+};
 use tokio_rustls::server::TlsStream;
 #[derive(Debug)]
-pub struct Conn {
-   // pub tls_socket: Arc<Mutex<TlsStream<TcpStream>>>,
-    pub read_stream:Arc<Mutex<ReadHalf<TlsStream<TcpStream>>>>,
-    pub write_stream:Arc<Mutex<WriteHalf<TlsStream<TcpStream>>>>,
+pub struct Conn<T>
+where
+    T: AsyncRead + AsyncWrite + Unpin,
+{
+    // pub tls_socket: Arc<Mutex<T>>,
+    pub read_stream: Arc<Mutex<ReadHalf<T>>>,
+    pub write_stream: Arc<Mutex<WriteHalf<T>>>,
     pub conn_type: Option<String>,
 }
-impl Conn {
-    pub fn new(socket: TlsStream<TcpStream>, conn_type: Option<String>) -> Conn {
-        let (r,w) = tokio::io::split(socket);
+impl<T> Conn<T>
+where
+    T: AsyncRead + AsyncWrite + Unpin,
+{
+    pub fn new(socket: T, conn_type: Option<String>) -> Conn<T> {
+        let (r, w) = tokio::io::split(socket);
         Conn {
-           // tls_socket: Arc::new(Mutex::new(socket)),
-            read_stream:Arc::new(Mutex::new(r)),
-            write_stream:Arc::new(Mutex::new(w)),
+            // tls_socket: Arc::new(Mutex::new(socket)),
+            read_stream: Arc::new(Mutex::new(r)),
+            write_stream: Arc::new(Mutex::new(w)),
             conn_type,
         }
     }
