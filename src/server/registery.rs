@@ -43,7 +43,9 @@ pub fn get_tunnel_cache(id: &str) -> Option<SharedTunnel> {
     let mut t: Option<SharedTunnel> = None;
     if let Ok(lock) = TUNNEL_REGISTERY.read() {
         log::debug!("ID:{}", id);
-        t = Some(lock.get(id).unwrap().clone());
+        if let Some(tunnel) = lock.get(id) {
+            t = Some(tunnel.clone());
+        }
     }
 
     t
@@ -52,7 +54,6 @@ pub fn get_tunnel_cache(id: &str) -> Option<SharedTunnel> {
 pub async fn add_tunnel_cache(id: String, t: SharedTunnel) -> Option<SharedTunnel> {
     let mut old: Option<SharedTunnel> = None;
     if let Ok(mut lock) = TUNNEL_REGISTERY.write() {
-
         log::debug!("add tunnel {}:{:?}", id, t);
         old = lock.insert(id, t);
     }

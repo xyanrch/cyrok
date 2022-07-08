@@ -8,8 +8,9 @@ use cyrok::message::proxy::StartProxy;
 use cyrok::message::{self, proxy, Message};
 use futures::future::ok;
 use futures::SinkExt;
-use hyper::http::{Request, Response, StatusCode};
-use hyper::{server::conn::Http, service::service_fn, Body};
+use http::response;
+//use hyper::http::{Request, Response, StatusCode};
+//use hyper::{server::conn::Http, service::service_fn, Body};
 use serde::Deserializer;
 use serde_json::Map;
 use std::convert::Infallible;
@@ -29,7 +30,18 @@ use tokio_rustls::rustls::{self, Certificate, PrivateKey};
 use tokio_rustls::TlsAcceptor;
 use tokio_stream::StreamExt;
 use tokio_util::codec::{BytesCodec, Decoder, Encoder, Framed, LinesCodec};
-//pub mod cmd;
+
+use http::{Response, StatusCode};
+const NOT_FOUND: &'static str = r#"HTTP/1.0 404 Not Found
+Content-Length: {}
+
+Tunnel {} not found"#;
+
+const BadRequest: &'static str = r#"HTTP/1.0 400 Bad Request
+Content-Length: 12
+
+Bad Request"#;
+
 #[derive(Debug, Clone)]
 enum Type {
     Control,
@@ -68,12 +80,13 @@ async fn handle_http_conn(mut tcp_socket: TcpStream) -> Result<(), Box<dyn Error
     let mut headers = [httparse::EMPTY_HEADER; 64];
     let mut req = httparse::Request::new(&mut headers);
     //
-    let mut buf = [0; 1024];
-    //tcp.read_buf(&mut buf).await?;
-    tcp_socket.peek(&mut buf).await.unwrap();
-    if let Err(err) = req.parse(&buf) {
+    let mut req_buf = [0; 1024];
+    tcp_socket.read(&mut req_buf).await?;
+    // tcp_socket.peek(&mut buf).await.unwrap();
+    if let Err(err) = req.parse(&req_buf) {
         log::info!("Parse http request got wrong:{}", err);
-        tcp_socket.shutdown().await?;
+        tcp_socket.write_all(BadRequest.as_bytes()).await?;
+        // tcp_socket.shutdown().await?;
         return Ok(());
     }
     log::debug!("parsed http req:{:?}", req);
@@ -88,33 +101,40 @@ async fn handle_http_conn(mut tcp_socket: TcpStream) -> Result<(), Box<dyn Error
         )
         .unwrap()
     );
-    //let host_name = std::str::from_utf8(t).unwrap();
     log::debug!("host:{}", url);
-    let tunnel = get_tunnel_cache(&url).unwrap();
-    let c = tunnel.ctl.upgrade().unwrap();
-    let proxy = c.get_proxy_conn().await;
+    if let Some(tunnel) = get_tunnel_cache(&url) {
+        let c = tunnel.ctl.upgrade().unwrap();
+        let proxy = c.get_proxy_conn().await;
 
-    {
-        Message::StartProxy(StartProxy {
-            Url: tunnel.url.clone(),
-            ClientAddr: tcp_socket.peer_addr().unwrap().clone().to_string(),
-        })
-        .send_message(&proxy)
-        .await?;
+        {
+            Message::StartProxy(StartProxy {
+                Url: tunnel.url.clone(),
+                ClientAddr: tcp_socket.peer_addr().unwrap().clone().to_string(),
+            })
+            .send_message(&proxy)
+            .await?;
+        }
+        {
+            proxy.write_stream.lock().await.write_all(&req_buf).await?;
+        }
+        let (mut r, mut w) = tcp_socket.split();
+        //let wo = *proxy.read_stream.lock().await;
+        let client_to_server = async {
+            io::copy(&mut r, &mut *proxy.write_stream.lock().await).await
+            // wo.shutdown().await
+        };
+
+        let server_to_client = async {
+            io::copy(&mut *proxy.read_stream.lock().await, &mut w).await
+            // wi.shutdown().await
+        };
+
+        tokio::try_join!(client_to_server, server_to_client)?;
+    } else {
+        tcp_socket
+            .write_all(format!("Tunnel:{} not found,please check again!", url).as_bytes())
+            .await?;
     }
-    let (mut r, mut w) = tcp_socket.split();
-    //let wo = *proxy.read_stream.lock().await;
-    let client_to_server = async {
-        io::copy(&mut r, &mut *proxy.write_stream.lock().await).await
-        // wo.shutdown().await
-    };
-
-    let server_to_client = async {
-        io::copy(&mut *proxy.read_stream.lock().await, &mut w).await
-        // wi.shutdown().await
-    };
-
-    tokio::try_join!(client_to_server, server_to_client)?;
 
     Ok(())
 }
