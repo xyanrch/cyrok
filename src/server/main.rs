@@ -1,4 +1,4 @@
-#![warn(rust_2018_idioms)]
+extern crate lazy_static;
 mod cli;
 mod service;
 use rustls_pemfile::{certs, rsa_private_keys};
@@ -8,11 +8,15 @@ use std::io::{self, BufReader};
 use std::path::{Path, PathBuf};
 use tokio::io::{copy, sink, split, AsyncWriteExt};
 //use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::rustls::{self, Certificate, PrivateKey};
 use tokio_rustls::TlsAcceptor;
-use std::sync::Arc;
-mod connection;
+
+use crate::cli::Options;
+mod control;
+mod registery;
+mod tunnel;
 fn load_certs(path: &Path) -> io::Result<Vec<Certificate>> {
     certs(&mut BufReader::new(File::open(path)?))
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid cert"))
@@ -24,14 +28,17 @@ fn load_keys(path: &Path) -> io::Result<Vec<PrivateKey>> {
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid key"))
         .map(|mut keys| keys.drain(..).map(PrivateKey).collect())
 }
+
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let opts = cli::Options::parse();
-    flexi_logger::Logger::try_with_str("info")
+    let opts = cli::Options::instance();
+
+    flexi_logger::Logger::try_with_str("debug")
         .unwrap()
         .start()
         .expect("the logger should start");
     log::info!("server begin");
+    log::info!("opts:{:?}", opts);
     //
     let certs = load_certs(Path::new("assets/server/tls/snakeoil.crt"))?;
     let mut keys = load_keys(Path::new("assets/server/tls/snakeoil.key"))?;
@@ -44,18 +51,25 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //
     let tls_acceptor = TlsAcceptor::from(Arc::new(tlsconfig));
 
-
     let data_listener = TcpListener::bind(opts.http_addr).await?;
     let ctrl_listener = TcpListener::bind("0.0.0.0:4443").await?;
-    service::run(tls_acceptor,ctrl_listener, data_listener, tokio::signal::ctrl_c()).await;
+    let https_listener = match opts.https_addr {
+        Some(https_addr) => Some(TcpListener::bind(https_addr).await?),
 
+        None => None,
+    };
+
+    service::run(
+        tls_acceptor,
+        ctrl_listener,
+        data_listener,
+        // https_listener,
+        tokio::signal::ctrl_c(),
+    )
+    .await;
+    registery::dump_control_registery().await;
+    registery::dump_tunnel_registery().await;
     log::info!("server shutdown");
 
     Ok(())
 }
-/*async fn transfer(mut inbound: TcpStream, proxy_addr: String) -> Result<(), Box<dyn Error>> {
-
-    let (mut ri, mut wi) = inbound.split();
-
-    Ok(())
-}*/
